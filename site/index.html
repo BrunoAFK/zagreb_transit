@@ -1,210 +1,834 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="hr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Zagreb Transit for Home Assistant - GTFS + realtime arrivals with dynamic watch sensors." />
-  <meta name="theme-color" content="#0b1020" />
-  <title>Zagreb Transit | Home Assistant Integration</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ZagrebTransit — Home Assistant Integration</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
 
-  <script>
-    (function () {
-      const saved = localStorage.getItem("zt_theme");
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      const dark = saved ? saved === "dark" : prefersDark;
-      document.documentElement.classList.toggle("dark", dark);
-    })();
-  </script>
+<!-- ① Theme + Language init — runs before paint to avoid flash -->
+<script>
+(function() {
+  // --- THEME ---
+  var tc = document.cookie.match(/theme=(dark|light)/);
+  var isDark = tc ? tc[1] === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (isDark) document.documentElement.classList.add('dark');
 
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: "class",
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ["Space Grotesk", "ui-sans-serif", "system-ui", "sans-serif"],
-          },
-          colors: {
-            ink: {
-              50: "#f6f7fb",
-              100: "#e8ecf6",
-              900: "#0b1020",
-            },
-            accent: {
-              500: "#17b26a",
-              600: "#12945a",
-            },
-          },
-          keyframes: {
-            floaty: {
-              "0%, 100%": { transform: "translateY(0px)" },
-              "50%": { transform: "translateY(-8px)" },
-            },
-            pulseGlow: {
-              "0%, 100%": { opacity: "0.25" },
-              "50%": { opacity: "0.55" },
-            },
-          },
-          animation: {
-            floaty: "floaty 6s ease-in-out infinite",
-            pulseGlow: "pulseGlow 4s ease-in-out infinite",
-          },
-        },
+  // --- LANGUAGE ---
+  var lc = document.cookie.match(/lang=(hr|en)/);
+  var lang;
+  if (lc) {
+    lang = lc[1]; // manual override from cookie
+  } else {
+    // auto-detect from browser
+    var bl = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+    lang = bl.startsWith('hr') || bl.startsWith('sr') || bl.startsWith('bs') ? 'hr' : 'en';
+  }
+  document.documentElement.setAttribute('data-lang', lang);
+  document.documentElement.lang = lang;
+  window.__lang = lang;
+})();
+</script>
+
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        display: ['Syne', 'sans-serif'],
+        body:    ['DM Sans', 'sans-serif'],
+        mono:    ['DM Mono', 'monospace'],
       },
-    };
-  </script>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
-
-  <style>
-    .reveal {
-      opacity: 0;
-      transform: translateY(18px);
-      transition: opacity 0.7s ease, transform 0.7s ease;
+      animation: { 'pulse-slow': 'pulse 3s ease-in-out infinite' },
     }
+  }
+}
+</script>
 
-    .reveal.in {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  </style>
+<style>
+  body { font-family:'DM Sans',sans-serif; font-size:17px; line-height:1.65; overflow-x:hidden; }
+
+  /* Animated grid */
+  .bg-grid {
+    background-image: linear-gradient(rgba(249,115,22,.07) 1px,transparent 1px), linear-gradient(90deg,rgba(249,115,22,.07) 1px,transparent 1px);
+    background-size:52px 52px;
+    animation:gridMove 20s linear infinite;
+  }
+  @keyframes gridMove { to { background-position:52px 52px; } }
+
+  /* Scroll reveal */
+  .reveal { opacity:0; transform:translateY(28px); transition:opacity .7s ease,transform .7s ease; }
+  .reveal.visible { opacity:1; transform:translateY(0); }
+
+  /* Code blocks */
+  .code-block { background:rgba(249,115,22,.05); border:1px solid rgba(249,115,22,.22); border-radius:10px; }
+  .dark .code-block { background:rgba(249,115,22,.07); border-color:rgba(249,115,22,.28); }
+
+  /* Gradient text */
+  .grad-text { background:linear-gradient(135deg,#f97316,#fb923c,#fdba74); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+  /* Cards */
+  .feature-card { transition:all .25s ease; border:1px solid transparent; }
+  .feature-card:hover { border-color:rgba(249,115,22,.35); transform:translateY(-3px); }
+
+  /* Entity badges */
+  .entity-badge { transition:all .2s ease; cursor:default; }
+  .entity-badge:hover { transform:translateY(-2px); box-shadow:0 4px 20px rgba(249,115,22,.2); }
+
+  /* Tram animation */
+  @keyframes tramRide { 0%,100%{transform:translateX(0)} 50%{transform:translateX(6px)} }
+  .tram-ride { animation:tramRide 2.5s ease-in-out infinite; }
+
+  /* Dot blink */
+  .dot { display:inline-block; }
+  .dot:nth-child(1){ animation:dotBlink 1.4s ease-in-out infinite; }
+  .dot:nth-child(2){ animation:dotBlink 1.4s ease-in-out .2s infinite; }
+  .dot:nth-child(3){ animation:dotBlink 1.4s ease-in-out .4s infinite; }
+  @keyframes dotBlink { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar{width:6px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(249,115,22,.4);border-radius:3px}
+
+  /* Timeline */
+  .timeline-line { position:absolute; left:19px; top:44px; bottom:8px; width:2px; background:linear-gradient(to bottom,rgba(249,115,22,.5),transparent); }
+
+  /* Theme pill */
+  .theme-pill { display:flex; align-items:center; gap:8px; background:transparent; border:1px solid rgba(249,115,22,.3); border-radius:999px; padding:5px 12px 5px 10px; cursor:pointer; transition:border-color .2s,background .2s; }
+  .theme-pill:hover { border-color:rgba(249,115,22,.7); background:rgba(249,115,22,.05); }
+  .theme-pill-track { position:relative; width:32px; height:18px; border-radius:9px; background:#94a3b8; transition:background .3s; flex-shrink:0; }
+  html.dark .theme-pill-track { background:#f97316; }
+  .theme-pill-thumb { position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:white; transition:transform .3s; }
+  html.dark .theme-pill-thumb { transform:translateX(14px); }
+  .theme-pill-label { font-family:'DM Mono',monospace; font-size:12px; color:#f97316; letter-spacing:.05em; min-width:30px; }
+
+  /* Lang toggle */
+  .lang-toggle { display:flex; align-items:center; border:1px solid rgba(249,115,22,.3); border-radius:999px; overflow:hidden; cursor:pointer; transition:border-color .2s; }
+  .lang-toggle:hover { border-color:rgba(249,115,22,.7); }
+  .lang-btn { padding:5px 12px; font-family:'DM Mono',monospace; font-size:12px; font-weight:500; letter-spacing:.05em; cursor:pointer; transition:all .2s; color:#94a3b8; background:transparent; border:none; outline:none; }
+  .lang-btn.active { color:white; background:#f97316; border-radius:999px; }
+  .lang-btn:not(.active):hover { color:#f97316; }
+
+  /* Lang transition */
+  [data-t] { transition:opacity .15s ease; }
+  .lang-switching [data-t] { opacity:0; }
+
+  @keyframes fadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+  .step-num { font-family:'DM Mono',monospace; font-size:12px; font-weight:500; letter-spacing:.08em; }
+</style>
 </head>
-<body class="h-full bg-ink-50 text-slate-800 antialiased transition-colors duration-300 dark:bg-ink-900 dark:text-slate-100">
-  <div class="relative min-h-full overflow-hidden">
-    <div class="pointer-events-none absolute inset-0 -z-10">
-      <div class="absolute -left-20 top-16 h-64 w-64 rounded-full bg-emerald-400/30 blur-3xl dark:bg-emerald-500/20 animate-pulseGlow"></div>
-      <div class="absolute right-0 top-44 h-72 w-72 rounded-full bg-cyan-300/30 blur-3xl dark:bg-cyan-500/20 animate-pulseGlow"></div>
-      <div class="absolute bottom-0 left-1/3 h-56 w-56 rounded-full bg-lime-300/20 blur-3xl dark:bg-lime-500/15 animate-pulseGlow"></div>
+
+<body class="bg-[#fafaf8] dark:bg-[#0f0f0f] text-neutral-800 dark:text-neutral-200 transition-colors duration-300">
+
+<!-- ═══════════ TRANSLATIONS ═══════════ -->
+<script>
+const T = {
+  hr: {
+    nav_github: "GitHub",
+    theme_dark: "Tamno",
+    theme_light: "Svijetlo",
+
+    hero_sub: "Home Assistant integracija koja kombinira ZET statične GTFS i realtime feedove — tablice polazaka, obližnji odlasci i dinamički watch senzori.",
+    badge_hacs: "HACS kompatibilno",
+    badge_ha: "Home Assistant",
+    badge_gtfs: "GTFS + Realtime",
+    badge_os: "Open Source",
+    scroll: "Skrolaj",
+
+    s01_label: "O projektu",
+    s01_title: "Što je ZagrebTransit?",
+    c1_title: "Statični GTFS feed",
+    c1_body: "Integracija preuzima i kešira ZET-ove GTFS statične podatke — rasporede, rute i stajališta — te ih automatski ažurira i čisti zastarjele cache datoteke.",
+    c2_title: "Realtime podaci",
+    c2_body: "Kombinirano s realtime GTFS feedom — živim kašnjenjima i položajima vozila. Zastarjeli podaci se automatski čiste nakon duljeg prekida.",
+    c3_title: "Watch senzori",
+    c3_body: "Dinamički upravljani senzori za praćenje odlazaka s odabranog stajališta — po imenu stajališta, vrsti vozila i vremenskom prozoru.",
+    c4_title: "Dashboards",
+    c4_body: "Gotove YAML dashboard predloške za Home Assistant — demo, debug i puni prikaz, dostupni na engleskom i hrvatskom.",
+
+    s02_label: "Instalacija",
+    s02_title: "HACS Custom Repository",
+    s02_sub: "Preporučeni način instalacije — kroz HACS kao custom repozitorij.",
+    step1_title: "Otvori HACS",
+    step1_body: "U Home Assistantu idi na",
+    step2_title: "Custom repozitoriji",
+    step2_body: "Klikni na",
+    step3_title: "Dodaj repozitorij",
+    step3_body: "URL repozitorija i kategorija",
+    step4_title: "Instaliraj",
+    step4_body: "Pronađi",
+    step4_body2: "u HACS i klikni Install",
+    step5_title: "Restart & Setup",
+    step5_body: "Restartaj HA → idi na",
+    step5_body2: "→ Zagreb Transit",
+    manual_label: "Ručna instalacija",
+    manual_1: "Kopiraj mapu",
+    manual_1b: "u HA config direktorij",
+    manual_2: "Restartaj Home Assistant",
+    manual_3: "Dodaj integraciju kroz Settings",
+    target_path: "Target path",
+    domain_label: "Integration domain",
+    entity_prefix: "Entity prefix",
+
+    s03_label: "Podrijetlo",
+    s03_title: "Kako je nastao projekt",
+    origin_p1: "ZagrebTransit je nastao iz potrebe da se podaci Zagrebačkog električnog tramvaja (ZET) učine dostupnima unutar Home Assistant ekosustava — na način koji je strukturiran, ažuran i upotrebljiv za svakodnevnu automatizaciju doma.",
+    origin_p2: "Projekt koristi javno dostupne GTFS feedove koje ZET objavljuje i kombinira ih s realtime GTFS-RT podacima, dajući uvid u stvarna kašnjenja i odlaske — ne samo planirane rasporede.",
+    origin_p3: "Rezultat je fleksibilna integracija koja korisniku omogućuje praćenje odlazaka s bilo kojeg ZET stajališta direktno u svom HA dashboardu, s filtriranjem po ruti, smjeru i vremenskom prozoru.",
+    author_label: "Autor",
+    tech_label: "Tehnologije",
+    source_label: "Izvor podataka",
+    source_name: "Zagrebački električni tramvaj",
+
+    s04_label: "Entiteti",
+    s04_title: "Što integracija izlaže",
+    s04_sub: "Sve odmah dostupno nakon postavljanja — core entiteti i dinamički watch senzori.",
+    core_title: "Core entiteti — uvijek dostupni",
+    e1_desc: "Aktivna verzija GTFS feeda",
+    e2_desc: "Izvor statičnog feeda",
+    e3_desc: "Status realtime veze",
+    e4_desc: "Registar watch senzora",
+    dyn_title: "Dinamički watch senzori — opcionalni",
+    w1_title: "station_query",
+    w1_sub: "Pretraga po imenu stajališta",
+    w1_body: "Prati odlaske s odabranog stajališta po imenu. Podržava filtriranje po vrsti vozila i vremenskom prozoru.",
+    w1_result: "Rezultat entitet",
+    w2_title: "nearby",
+    w2_sub: "Obližnja stajališta i odlasci",
+    w2_body: "Automatski pronalazi stajališta u blizini zadane lokacije i prikazuje nadolazeće odlaske s realtime kašnjenjima.",
+    w2_result: "Podaci uključuju",
+    cfg_label: "Primjer konfiguracije watcha",
+
+    s05_label: "Što je novo",
+    s05_title: "Ključne značajke",
+    f1_title: "Route filtering", f1_body: "Filtri ruta koriste realtime departure (dep_rt) gdje je relevantno.",
+    f2_title: "Deduplication",   f2_body: "Nearby i OD outputi uključuju sigurniju logiku dedupliciranja podataka.",
+    f3_title: "Stale protection", f3_body: "Realtime delay podaci automatski se čiste nakon duljeg outage perioda.",
+    f4_title: "Smart cache",      f4_body: "Statični feed cache izbjegava nepotrebna re-preuzimanja kada je verzija već keširana.",
+    f5_title: "Auto pruning",     f5_body: "Stare keširane feed datoteke automatski se brišu.",
+    f6_title: "Notifikacije",     f6_body: "Opcionalne perzistentne notifikacije o degradiranom statusu u Core postavkama.",
+    f7_title: "Stabilno imenovanje", f7_body: "Watch naming/renaming ponašanje je stabilnije za dinamičke entitete.",
+    f8_title: "Bilingvalni dashboards", f8_body: "Dashboard predloške dostupne na hrvatskom i engleskom jeziku.",
+    f9_title: "Opširna dokumentacija", f9_body: "Vodiči za korištenje, watch management, dashboard import i više.",
+
+    s06_label: "Dokumentacija",
+    s06_title: "Vodiči i resursi",
+    d1_title: "Korištenje bez watcha",
+    d2_title: "Watch Management",
+    d3_title: "Dashboards Guide",
+    d4_title: "Import Dashboards",
+    cta: "Pogledaj na GitHubu",
+
+    footer_sub: "Home Assistant Integration",
+    footer_hacs: "HACS Custom Integration",
+    footer_os: "Open Source",
+  },
+
+  en: {
+    nav_github: "GitHub",
+    theme_dark: "Dark",
+    theme_light: "Light",
+
+    hero_sub: "A Home Assistant integration that combines ZET static GTFS and realtime feeds — departure boards, nearby departures, and dynamically managed watch sensors.",
+    badge_hacs: "HACS Compatible",
+    badge_ha: "Home Assistant",
+    badge_gtfs: "GTFS + Realtime",
+    badge_os: "Open Source",
+    scroll: "Scroll",
+
+    s01_label: "About",
+    s01_title: "What is ZagrebTransit?",
+    c1_title: "Static GTFS Feed",
+    c1_body: "The integration downloads and caches ZET's static GTFS data — schedules, routes and stops — automatically updating and cleaning stale cache files.",
+    c2_title: "Realtime Data",
+    c2_body: "Combined with the realtime GTFS feed — live delays and vehicle positions. Stale data is automatically cleared after extended outage periods.",
+    c3_title: "Watch Sensors",
+    c3_body: "Dynamically managed sensors for tracking departures from a chosen stop — by stop name, vehicle type and time window.",
+    c4_title: "Dashboards",
+    c4_body: "Ready-made YAML dashboard templates for Home Assistant — demo, debug and full view, available in both English and Croatian.",
+
+    s02_label: "Installation",
+    s02_title: "HACS Custom Repository",
+    s02_sub: "The recommended installation method — via HACS as a custom repository.",
+    step1_title: "Open HACS",
+    step1_body: "In Home Assistant navigate to",
+    step2_title: "Custom Repositories",
+    step2_body: "Click",
+    step3_title: "Add Repository",
+    step3_body: "Enter the repository URL and set category to",
+    step4_title: "Install",
+    step4_body: "Find",
+    step4_body2: "in HACS and click Install",
+    step5_title: "Restart & Setup",
+    step5_body: "Restart HA → navigate to",
+    step5_body2: "→ Zagreb Transit",
+    manual_label: "Manual Installation",
+    manual_1: "Copy the folder",
+    manual_1b: "to your HA config directory",
+    manual_2: "Restart Home Assistant",
+    manual_3: "Add the integration via Settings",
+    target_path: "Target path",
+    domain_label: "Integration domain",
+    entity_prefix: "Entity prefix",
+
+    s03_label: "Origin",
+    s03_title: "How the project came to be",
+    origin_p1: "ZagrebTransit was born from the need to make Zagreb Electric Tram (ZET) data accessible within the Home Assistant ecosystem — in a structured, up-to-date way that's useful for everyday home automation.",
+    origin_p2: "The project uses publicly available GTFS feeds published by ZET and combines them with realtime GTFS-RT data, providing insight into actual delays and departures — not just planned schedules.",
+    origin_p3: "The result is a flexible integration that lets users monitor departures from any ZET stop directly in their HA dashboard, with filtering by route, direction and time window.",
+    author_label: "Author",
+    tech_label: "Technologies",
+    source_label: "Data source",
+    source_name: "Zagreb Electric Tram",
+
+    s04_label: "Entities",
+    s04_title: "What the integration exposes",
+    s04_sub: "Everything available immediately after setup — core entities and optional dynamic watch sensors.",
+    core_title: "Core entities — always available",
+    e1_desc: "Active GTFS feed version",
+    e2_desc: "Static feed source",
+    e3_desc: "Realtime connection status",
+    e4_desc: "Watch sensor registry",
+    dyn_title: "Dynamic watch sensors — optional",
+    w1_title: "station_query",
+    w1_sub: "Search by stop name",
+    w1_body: "Tracks departures from a chosen stop by name. Supports filtering by vehicle type and time window.",
+    w1_result: "Result entity",
+    w2_title: "nearby",
+    w2_sub: "Nearby stops & departures",
+    w2_body: "Automatically finds stops near a given location and shows upcoming departures with realtime delays.",
+    w2_result: "Data includes",
+    cfg_label: "Example watch configuration",
+
+    s05_label: "What's new",
+    s05_title: "Key features",
+    f1_title: "Route filtering", f1_body: "Route filters use realtime departure (dep_rt) where relevant.",
+    f2_title: "Deduplication",   f2_body: "Nearby and OD outputs include safer deduplication logic.",
+    f3_title: "Stale protection", f3_body: "Realtime delay data is auto-cleared after longer outage periods.",
+    f4_title: "Smart cache",      f4_body: "Static feed cache avoids unnecessary re-downloads when the version is already cached.",
+    f5_title: "Auto pruning",     f5_body: "Old cached feed files are pruned automatically.",
+    f6_title: "Notifications",    f6_body: "Optional persistent degraded-status notifications available in Core settings.",
+    f7_title: "Stable naming",    f7_body: "Watch naming/renaming behaviour is more stable for dynamic entities.",
+    f8_title: "Bilingual dashboards", f8_body: "Dashboard templates available in both Croatian and English.",
+    f9_title: "Extensive docs",   f9_body: "Guides for usage, watch management, dashboard import and more.",
+
+    s06_label: "Documentation",
+    s06_title: "Guides & Resources",
+    d1_title: "Usage without watches",
+    d2_title: "Watch Management",
+    d3_title: "Dashboards Guide",
+    d4_title: "Import Dashboards",
+    cta: "View on GitHub",
+
+    footer_sub: "Home Assistant Integration",
+    footer_hacs: "HACS Custom Integration",
+    footer_os: "Open Source",
+  }
+};
+</script>
+
+<!-- NAV -->
+<nav class="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 md:px-10 py-4 border-b border-neutral-200/50 dark:border-white/[0.06] bg-[#fafaf8]/80 dark:bg-[#0f0f0f]/80 backdrop-blur-md">
+  <div class="flex items-center gap-2.5">
+    <div class="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></div>
+    <span class="font-mono text-sm text-neutral-500 dark:text-neutral-400 tracking-widest uppercase">ZagrebTransit</span>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <!-- Language toggle -->
+    <div class="lang-toggle" id="langToggle" title="Switch language / Promijeni jezik">
+      <button class="lang-btn" id="btnHr" onclick="setLang('hr')">HR</button>
+      <button class="lang-btn" id="btnEn" onclick="setLang('en')">EN</button>
     </div>
 
-    <header class="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-6 sm:px-8">
-      <div class="flex items-center gap-3">
-        <div class="grid h-10 w-10 place-items-center rounded-2xl border border-emerald-500/30 bg-white/80 text-emerald-600 shadow-sm dark:bg-slate-800/80 dark:text-emerald-300">
-          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 12h6l2-4 3 8 2-4h5" />
-          </svg>
+    <!-- Theme toggle -->
+    <button class="theme-pill" id="themeToggle" title="Toggle theme">
+      <div class="theme-pill-track"><div class="theme-pill-thumb"></div></div>
+      <span class="theme-pill-label" id="themeLabel"></span>
+    </button>
+
+    <!-- GitHub -->
+    <a href="https://github.com/BrunoAFK/ZagrebTransit" target="_blank"
+       class="hidden sm:flex items-center gap-2 px-4 py-2 rounded-full border border-orange-500/30 hover:border-orange-500/70 hover:bg-orange-500/5 transition-all text-sm font-mono text-orange-600 dark:text-orange-400">
+      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+      <span data-t="nav_github">GitHub</span>
+    </a>
+  </div>
+</nav>
+
+<!-- ═══════════════════════ HERO ═══════════════════════ -->
+<section class="relative min-h-screen flex flex-col items-center justify-center overflow-hidden px-6 pt-20">
+  <div class="absolute inset-0 bg-grid opacity-60 pointer-events-none"></div>
+  <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[350px] bg-orange-400/10 dark:bg-orange-500/8 rounded-full blur-[120px] pointer-events-none animate-pulse-slow"></div>
+
+  <div class="relative z-10 text-center max-w-4xl mx-auto" style="animation:fadeUp .8s ease forwards;opacity:0">
+    <div class="flex justify-center mb-10">
+      <div class="relative">
+        <div class="w-24 h-24 rounded-3xl bg-orange-500/10 dark:bg-orange-500/15 border border-orange-500/30 flex items-center justify-center">
+          <span class="tram-ride text-5xl">🚋</span>
         </div>
-        <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Home Assistant</p>
-          <h1 class="text-lg font-semibold">Zagreb Transit</h1>
+        <div class="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center">
+          <span class="text-white text-[9px] font-bold tracking-tight">HA</span>
+        </div>
+      </div>
+    </div>
+
+    <h1 class="font-display font-800 tracking-tight leading-none mb-4" style="font-size:clamp(3rem,10vw,6rem)">
+      <span class="grad-text">Zagreb</span><br/>
+      <span class="text-neutral-900 dark:text-white">Transit</span>
+    </h1>
+
+    <p class="mt-6 text-xl md:text-2xl text-neutral-500 dark:text-neutral-400 font-light max-w-2xl mx-auto leading-relaxed" data-t="hero_sub"></p>
+
+    <div class="flex flex-wrap items-center justify-center gap-3 mt-10">
+      <span class="flex items-center gap-2 px-5 py-2.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-700 dark:text-orange-300 text-sm font-mono">
+        <span class="w-2 h-2 rounded-full bg-orange-500 animate-pulse inline-block"></span>
+        <span data-t="badge_hacs"></span>
+      </span>
+      <span class="px-5 py-2.5 rounded-full bg-neutral-100 dark:bg-white/5 border border-neutral-200 dark:border-white/10 text-neutral-600 dark:text-neutral-400 text-sm font-mono" data-t="badge_ha"></span>
+      <span class="px-5 py-2.5 rounded-full bg-neutral-100 dark:bg-white/5 border border-neutral-200 dark:border-white/10 text-neutral-600 dark:text-neutral-400 text-sm font-mono" data-t="badge_gtfs"></span>
+      <span class="px-5 py-2.5 rounded-full bg-neutral-100 dark:bg-white/5 border border-neutral-200 dark:border-white/10 text-neutral-600 dark:text-neutral-400 text-sm font-mono" data-t="badge_os"></span>
+    </div>
+
+    <div class="mt-16 flex flex-col items-center gap-2 text-neutral-400 dark:text-neutral-600">
+      <span class="text-xs font-mono tracking-widest uppercase" data-t="scroll"></span>
+      <div class="flex gap-1">
+        <span class="dot w-1.5 h-1.5 rounded-full bg-orange-500 inline-block"></span>
+        <span class="dot w-1.5 h-1.5 rounded-full bg-orange-500 inline-block"></span>
+        <span class="dot w-1.5 h-1.5 rounded-full bg-orange-500 inline-block"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ ABOUT ═══════════════════════ -->
+<section class="py-28 px-6">
+  <div class="max-w-5xl mx-auto">
+    <div class="reveal mb-12">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="step-num text-orange-500 bg-orange-500/10 px-2.5 py-1 rounded-md">01</span>
+        <span class="text-sm font-mono text-neutral-400 uppercase tracking-widest" data-t="s01_label"></span>
+      </div>
+      <h2 class="font-display font-700 text-neutral-900 dark:text-white" style="font-size:clamp(2rem,5vw,3.25rem);line-height:1.15" data-t="s01_title"></h2>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="reveal feature-card rounded-2xl p-8 bg-white dark:bg-white/[0.03] shadow-sm dark:shadow-none">
+        <div class="w-14 h-14 rounded-xl bg-orange-500/10 flex items-center justify-center mb-6 text-3xl">🗺️</div>
+        <h3 class="font-display text-2xl font-600 mb-3 text-neutral-900 dark:text-white" data-t="c1_title"></h3>
+        <p class="text-neutral-600 dark:text-neutral-400 leading-relaxed" data-t="c1_body"></p>
+      </div>
+      <div class="reveal feature-card rounded-2xl p-8 bg-white dark:bg-white/[0.03] shadow-sm dark:shadow-none" style="transition-delay:.1s">
+        <div class="w-14 h-14 rounded-xl bg-orange-500/10 flex items-center justify-center mb-6 text-3xl">⚡</div>
+        <h3 class="font-display text-2xl font-600 mb-3 text-neutral-900 dark:text-white" data-t="c2_title"></h3>
+        <p class="text-neutral-600 dark:text-neutral-400 leading-relaxed" data-t="c2_body"></p>
+      </div>
+      <div class="reveal feature-card rounded-2xl p-8 bg-white dark:bg-white/[0.03] shadow-sm dark:shadow-none" style="transition-delay:.15s">
+        <div class="w-14 h-14 rounded-xl bg-orange-500/10 flex items-center justify-center mb-6 text-3xl">👁️</div>
+        <h3 class="font-display text-2xl font-600 mb-3 text-neutral-900 dark:text-white" data-t="c3_title"></h3>
+        <p class="text-neutral-600 dark:text-neutral-400 leading-relaxed" data-t="c3_body"></p>
+      </div>
+      <div class="reveal feature-card rounded-2xl p-8 bg-white dark:bg-white/[0.03] shadow-sm dark:shadow-none" style="transition-delay:.2s">
+        <div class="w-14 h-14 rounded-xl bg-orange-500/10 flex items-center justify-center mb-6 text-3xl">📊</div>
+        <h3 class="font-display text-2xl font-600 mb-3 text-neutral-900 dark:text-white" data-t="c4_title"></h3>
+        <p class="text-neutral-600 dark:text-neutral-400 leading-relaxed" data-t="c4_body"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ INSTALLATION ═══════════════════════ -->
+<section class="py-28 px-6 bg-neutral-50 dark:bg-white/[0.02] border-y border-neutral-200/60 dark:border-white/5">
+  <div class="max-w-5xl mx-auto">
+    <div class="reveal mb-14">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="step-num text-orange-500 bg-orange-500/10 px-2.5 py-1 rounded-md">02</span>
+        <span class="text-sm font-mono text-neutral-400 uppercase tracking-widest" data-t="s02_label"></span>
+      </div>
+      <h2 class="font-display font-700 text-neutral-900 dark:text-white mb-3" style="font-size:clamp(2rem,5vw,3.25rem);line-height:1.15" data-t="s02_title"></h2>
+      <p class="text-lg text-neutral-500 dark:text-neutral-400 max-w-xl" data-t="s02_sub"></p>
+    </div>
+
+    <div class="flex flex-col lg:flex-row gap-10 items-start">
+
+      <!-- Steps left -->
+      <div class="w-full lg:w-[58%] reveal">
+        <div class="relative">
+          <div class="timeline-line"></div>
+
+          <div class="relative flex gap-5 pb-9">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-mono text-base z-10">1</div>
+            <div class="pt-1 min-w-0">
+              <h4 class="font-display text-xl font-600 text-neutral-900 dark:text-white mb-1.5" data-t="step1_title"></h4>
+              <p class="text-base text-neutral-500 dark:text-neutral-400"><span data-t="step1_body"></span> <code class="font-mono text-sm text-orange-500 bg-orange-500/10 px-2 py-0.5 rounded-md whitespace-nowrap">HACS → Integrations</code></p>
+            </div>
+          </div>
+
+          <div class="relative flex gap-5 pb-9">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-600 dark:text-orange-300 font-mono text-base z-10">2</div>
+            <div class="pt-1 min-w-0">
+              <h4 class="font-display text-xl font-600 text-neutral-900 dark:text-white mb-1.5" data-t="step2_title"></h4>
+              <p class="text-base text-neutral-500 dark:text-neutral-400"><span data-t="step2_body"></span> <code class="font-mono text-sm text-orange-500 bg-orange-500/10 px-2 py-0.5 rounded-md whitespace-nowrap">⋮ → Custom repositories</code></p>
+            </div>
+          </div>
+
+          <div class="relative flex gap-5 pb-9">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-600 dark:text-orange-300 font-mono text-base z-10">3</div>
+            <div class="pt-1 min-w-0 w-full">
+              <h4 class="font-display text-xl font-600 text-neutral-900 dark:text-white mb-1.5" data-t="step3_title"></h4>
+              <p class="text-base text-neutral-500 dark:text-neutral-400 mb-3"><span data-t="step3_body"></span> <code class="font-mono text-sm text-orange-500 bg-orange-500/10 px-2 py-0.5 rounded-md">Integration</code></p>
+              <div class="code-block px-4 py-3 flex items-center gap-3">
+                <code class="font-mono text-sm text-orange-600 dark:text-orange-400 break-all flex-1">https://github.com/BrunoAFK/ZagrebTransit</code>
+                <button onclick="copyUrl(this)" class="flex-shrink-0 text-neutral-400 hover:text-orange-500 transition-colors p-1" title="Copy">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="relative flex gap-5 pb-9">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-600 dark:text-orange-300 font-mono text-base z-10">4</div>
+            <div class="pt-1 min-w-0">
+              <h4 class="font-display text-xl font-600 text-neutral-900 dark:text-white mb-1.5" data-t="step4_title"></h4>
+              <p class="text-base text-neutral-500 dark:text-neutral-400"><span data-t="step4_body"></span> <strong class="text-neutral-700 dark:text-neutral-300 font-600">Zagreb Transit</strong> <span data-t="step4_body2"></span></p>
+            </div>
+          </div>
+
+          <div class="relative flex gap-5">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-600 dark:text-orange-300 font-mono text-base z-10">5</div>
+            <div class="pt-1 min-w-0">
+              <h4 class="font-display text-xl font-600 text-neutral-900 dark:text-white mb-1.5" data-t="step5_title"></h4>
+              <p class="text-base text-neutral-500 dark:text-neutral-400"><span data-t="step5_body"></span> <code class="font-mono text-sm text-orange-500 bg-orange-500/10 px-2 py-0.5 rounded-md">Settings → Devices &amp; Services → Add Integration</code> <span data-t="step5_body2"></span></p>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="flex items-center gap-2 sm:gap-3">
-        <a id="repoLink" href="https://github.com/BrunoAFK/ZagrebTransport" target="_blank" rel="noopener noreferrer"
-          class="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 backdrop-blur transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:border-slate-500">
-          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.79 23.39c.6.12.82-.26.82-.58v-2.2c-3.34.73-4.04-1.42-4.04-1.42-.54-1.38-1.34-1.74-1.34-1.74-1.1-.75.08-.73.08-.73 1.21.08 1.85 1.25 1.85 1.25 1.08 1.85 2.84 1.31 3.53 1 .11-.79.42-1.31.76-1.61-2.67-.3-5.48-1.34-5.48-5.95 0-1.31.47-2.37 1.24-3.2-.12-.3-.54-1.52.12-3.16 0 0 1.01-.32 3.31 1.22a11.6 11.6 0 0 1 6.02 0c2.3-1.54 3.31-1.22 3.31-1.22.66 1.64.24 2.86.12 3.16.77.83 1.24 1.89 1.24 3.2 0 4.63-2.82 5.65-5.5 5.95.43.37.82 1.1.82 2.23v3.3c0 .32.22.71.83.58A12 12 0 0 0 12 .5Z"/></svg>
-          <span>GitHub</span>
-          <span class="text-slate-400">•</span>
-          <span class="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-300">
-            <svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"><path d="m12 17.3-6.2 3.7 1.7-7.1L2 9.3l7.2-.6L12 2l2.8 6.7 7.2.6-5.5 4.6 1.7 7.1z"/></svg>
-            <span id="starsCount">—</span>
-          </span>
-        </a>
-
-        <button id="themeToggle" type="button" aria-label="Toggle theme"
-          class="grid h-10 w-10 place-items-center rounded-full border border-slate-300/80 bg-white/80 text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:border-slate-500">
-          <svg id="sunIcon" viewBox="0 0 24 24" class="h-5 w-5 dark:hidden" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-          <svg id="moonIcon" viewBox="0 0 24 24" class="hidden h-5 w-5 dark:block" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
-        </button>
-      </div>
-    </header>
-
-    <main class="mx-auto max-w-6xl px-5 pb-16 sm:px-8">
-      <section class="reveal grid gap-10 rounded-3xl border border-white/70 bg-white/70 p-8 shadow-xl backdrop-blur-xl dark:border-slate-700/60 dark:bg-slate-900/60 lg:grid-cols-[1.2fr_0.8fr] lg:p-12">
-        <div>
-          <p class="mb-3 inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">Realtime GTFS + Watches</p>
-          <h2 class="text-4xl font-bold leading-tight sm:text-5xl">Transit info for Zagreb, built for Home Assistant.</h2>
-          <p class="mt-5 max-w-2xl text-lg text-slate-600 dark:text-slate-300">
-            Combines static GTFS and realtime feed data to provide nearby departures, route boards,
-            and dynamic watch sensors you can wire into dashboards and automations.
-          </p>
-
-          <div class="mt-8 flex flex-wrap gap-3">
-            <a href="https://github.com/BrunoAFK/ZagrebTransport" target="_blank" rel="noopener"
-              class="rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-emerald-600">
-              Open Repository
-            </a>
-            <a href="https://github.com/BrunoAFK/ZagrebTransport/issues" target="_blank" rel="noopener"
-              class="rounded-xl border border-slate-300 bg-white/80 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:border-slate-500">
-              Report Issue
-            </a>
+      <!-- Manual + Domain right -->
+      <div class="w-full lg:w-[40%] space-y-5 reveal" style="transition-delay:.15s">
+        <div class="rounded-2xl border border-neutral-200 dark:border-white/10 p-7 bg-white dark:bg-white/[0.03]">
+          <div class="flex items-center gap-2.5 mb-5">
+            <svg class="w-4 h-4 text-neutral-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span class="text-sm font-mono text-neutral-500 uppercase tracking-wider" data-t="manual_label"></span>
+          </div>
+          <ol class="space-y-3">
+            <li class="flex gap-3 text-base text-neutral-600 dark:text-neutral-400">
+              <span class="text-orange-500 font-mono font-500 flex-shrink-0">1.</span>
+              <span><span data-t="manual_1"></span> <code class="font-mono text-sm text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded-md break-all">custom_components/zagreb_transit</code> <span data-t="manual_1b"></span></span>
+            </li>
+            <li class="flex gap-3 text-base text-neutral-600 dark:text-neutral-400">
+              <span class="text-orange-500 font-mono font-500 flex-shrink-0">2.</span>
+              <span data-t="manual_2"></span>
+            </li>
+            <li class="flex gap-3 text-base text-neutral-600 dark:text-neutral-400">
+              <span class="text-orange-500 font-mono font-500 flex-shrink-0">3.</span>
+              <span data-t="manual_3"></span>
+            </li>
+          </ol>
+          <div class="mt-6 pt-5 border-t border-neutral-100 dark:border-white/5">
+            <p class="text-xs font-mono text-neutral-400 mb-2 uppercase tracking-wider" data-t="target_path"></p>
+            <div class="code-block px-4 py-3">
+              <code class="font-mono text-sm text-orange-600 dark:text-orange-400 break-all">&lt;HA_CONFIG&gt;/custom_components/zagreb_transit</code>
+            </div>
           </div>
         </div>
 
-        <div class="animate-floaty rounded-2xl border border-emerald-300/40 bg-gradient-to-br from-emerald-400/10 via-cyan-300/10 to-lime-300/10 p-6 dark:border-emerald-500/20">
-          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Core Entities</p>
-          <ul class="mt-4 space-y-3 text-sm text-slate-700 dark:text-slate-200">
-            <li class="rounded-lg border border-white/70 bg-white/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">sensor.zagreb_transport_feed_source</li>
-            <li class="rounded-lg border border-white/70 bg-white/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">sensor.zagreb_transport_realtime_status</li>
-            <li class="rounded-lg border border-white/70 bg-white/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">sensor.zagreb_transport_nearby_board</li>
-            <li class="rounded-lg border border-white/70 bg-white/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/80">sensor.zagreb_transport_watch_registry</li>
-          </ul>
+        <div class="rounded-xl border border-orange-500/25 bg-orange-500/[0.04] dark:bg-orange-500/[0.06] p-6">
+          <p class="text-xs font-mono text-orange-500 uppercase tracking-wider mb-2.5" data-t="domain_label"></p>
+          <p class="font-mono text-xl font-500 text-orange-700 dark:text-orange-300">zagreb_transit</p>
+          <p class="text-sm font-mono text-orange-600/60 dark:text-orange-400/60 mt-2"><span data-t="entity_prefix"></span>: <span class="text-orange-600 dark:text-orange-400">zagreb_transport_*</span></p>
         </div>
-      </section>
-
-      <section class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <article class="reveal rounded-2xl border border-slate-200/80 bg-white/75 p-6 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/60">
-          <h3 class="text-lg font-semibold">Watch Sensors</h3>
-          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Create and manage dynamic watches by stop, line, direction, or nearby context.</p>
-        </article>
-        <article class="reveal rounded-2xl border border-slate-200/80 bg-white/75 p-6 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/60">
-          <h3 class="text-lg font-semibold">Realtime Fallbacks</h3>
-          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Stale feed protection and resilient cache logic keep dashboards usable during outages.</p>
-        </article>
-        <article class="reveal rounded-2xl border border-slate-200/80 bg-white/75 p-6 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/60">
-          <h3 class="text-lg font-semibold">Dashboard Ready</h3>
-          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Includes sample dashboards and docs for quick setup in both Croatian and English.</p>
-        </article>
-      </section>
-
-      <section class="reveal mt-10 rounded-3xl border border-slate-200/80 bg-white/75 p-8 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/60">
-        <h3 class="text-2xl font-bold">Quick Start</h3>
-        <ol class="mt-5 grid gap-3 text-sm text-slate-700 dark:text-slate-300 sm:grid-cols-2">
-          <li class="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/70">1. Install via HACS custom repository.</li>
-          <li class="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/70">2. Restart Home Assistant.</li>
-          <li class="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/70">3. Add integration: <code class="font-semibold">Zagreb Transit</code>.</li>
-          <li class="rounded-xl border border-slate-200 bg-white/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/70">4. Create your first watch sensor in integration options.</li>
-        </ol>
-      </section>
-    </main>
+      </div>
+    </div>
   </div>
+</section>
 
-  <script>
-    const themeToggle = document.getElementById("themeToggle");
-    themeToggle.addEventListener("click", () => {
-      const html = document.documentElement;
-      const nextDark = !html.classList.contains("dark");
-      html.classList.toggle("dark", nextDark);
-      localStorage.setItem("zt_theme", nextDark ? "dark" : "light");
+<!-- ═══════════════════════ ORIGIN ═══════════════════════ -->
+<section class="py-28 px-6">
+  <div class="max-w-5xl mx-auto">
+    <div class="reveal mb-12">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="step-num text-orange-500 bg-orange-500/10 px-2.5 py-1 rounded-md">03</span>
+        <span class="text-sm font-mono text-neutral-400 uppercase tracking-widest" data-t="s03_label"></span>
+      </div>
+      <h2 class="font-display font-700 text-neutral-900 dark:text-white" style="font-size:clamp(2rem,5vw,3.25rem);line-height:1.15" data-t="s03_title"></h2>
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-7">
+      <div class="lg:col-span-2 reveal">
+        <div class="rounded-2xl p-8 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5 h-full space-y-5">
+          <p class="text-lg text-neutral-600 dark:text-neutral-400 leading-relaxed" data-t="origin_p1"></p>
+          <p class="text-lg text-neutral-600 dark:text-neutral-400 leading-relaxed" data-t="origin_p2"></p>
+          <p class="text-lg text-neutral-600 dark:text-neutral-400 leading-relaxed" data-t="origin_p3"></p>
+        </div>
+      </div>
+
+      <div class="space-y-5 reveal" style="transition-delay:.1s">
+        <div class="rounded-2xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5">
+          <p class="text-xs font-mono text-neutral-400 uppercase tracking-wider mb-4" data-t="author_label"></p>
+          <div class="flex items-center gap-3">
+            <div class="w-12 h-12 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-600 dark:text-orange-400 font-display font-700 text-xl flex-shrink-0">B</div>
+            <div>
+              <p class="font-display font-600 text-lg text-neutral-900 dark:text-white">BrunoAFK</p>
+              <a href="https://github.com/BrunoAFK" target="_blank" class="text-sm font-mono text-orange-500 hover:text-orange-600 transition-colors">@BrunoAFK on GitHub</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5">
+          <p class="text-xs font-mono text-neutral-400 uppercase tracking-wider mb-4" data-t="tech_label"></p>
+          <div class="flex flex-wrap gap-2">
+            <span class="px-3 py-1.5 rounded-lg bg-neutral-100 dark:bg-white/5 text-sm font-mono text-neutral-600 dark:text-neutral-400">Python</span>
+            <span class="px-3 py-1.5 rounded-lg bg-neutral-100 dark:bg-white/5 text-sm font-mono text-neutral-600 dark:text-neutral-400">GTFS</span>
+            <span class="px-3 py-1.5 rounded-lg bg-neutral-100 dark:bg-white/5 text-sm font-mono text-neutral-600 dark:text-neutral-400">GTFS-RT</span>
+            <span class="px-3 py-1.5 rounded-lg bg-neutral-100 dark:bg-white/5 text-sm font-mono text-neutral-600 dark:text-neutral-400">Home Assistant</span>
+            <span class="px-3 py-1.5 rounded-lg bg-neutral-100 dark:bg-white/5 text-sm font-mono text-neutral-600 dark:text-neutral-400">HACS</span>
+          </div>
+        </div>
+
+        <div class="rounded-2xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5">
+          <p class="text-xs font-mono text-neutral-400 uppercase tracking-wider mb-4" data-t="source_label"></p>
+          <div class="flex items-center gap-3">
+            <span class="text-3xl">🚋</span>
+            <div>
+              <p class="font-display font-600 text-lg text-neutral-900 dark:text-white">ZET</p>
+              <p class="text-sm text-neutral-500 dark:text-neutral-400" data-t="source_name"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ ENTITIES ═══════════════════════ -->
+<section class="py-28 px-6 bg-neutral-50 dark:bg-white/[0.02] border-y border-neutral-200/60 dark:border-white/5">
+  <div class="max-w-5xl mx-auto">
+    <div class="reveal mb-14">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="step-num text-orange-500 bg-orange-500/10 px-2.5 py-1 rounded-md">04</span>
+        <span class="text-sm font-mono text-neutral-400 uppercase tracking-widest" data-t="s04_label"></span>
+      </div>
+      <h2 class="font-display font-700 text-neutral-900 dark:text-white mb-3" style="font-size:clamp(2rem,5vw,3.25rem);line-height:1.15" data-t="s04_title"></h2>
+      <p class="text-lg text-neutral-500 dark:text-neutral-400 max-w-xl" data-t="s04_sub"></p>
+    </div>
+
+    <!-- Core -->
+    <div class="reveal mb-12">
+      <h3 class="text-lg font-display font-600 text-neutral-700 dark:text-neutral-300 mb-5 flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block"></span>
+        <span data-t="core_title"></span>
+      </h3>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="entity-badge code-block p-5"><div class="text-xs text-neutral-400 font-mono mb-2 uppercase tracking-wide">sensor</div><div class="font-mono text-sm font-500 text-orange-600 dark:text-orange-400 break-all mb-2">zagreb_transport_feed_version_active</div><div class="text-sm text-neutral-500 dark:text-neutral-400" data-t="e1_desc"></div></div>
+        <div class="entity-badge code-block p-5"><div class="text-xs text-neutral-400 font-mono mb-2 uppercase tracking-wide">sensor</div><div class="font-mono text-sm font-500 text-orange-600 dark:text-orange-400 break-all mb-2">zagreb_transport_feed_source</div><div class="text-sm text-neutral-500 dark:text-neutral-400" data-t="e2_desc"></div></div>
+        <div class="entity-badge code-block p-5"><div class="text-xs text-neutral-400 font-mono mb-2 uppercase tracking-wide">sensor</div><div class="font-mono text-sm font-500 text-orange-600 dark:text-orange-400 break-all mb-2">zagreb_transport_realtime_status</div><div class="text-sm text-neutral-500 dark:text-neutral-400" data-t="e3_desc"></div></div>
+        <div class="entity-badge code-block p-5"><div class="text-xs text-neutral-400 font-mono mb-2 uppercase tracking-wide">sensor</div><div class="font-mono text-sm font-500 text-orange-600 dark:text-orange-400 break-all mb-2">zagreb_transport_watch_registry</div><div class="text-sm text-neutral-500 dark:text-neutral-400" data-t="e4_desc"></div></div>
+      </div>
+    </div>
+
+    <!-- Dynamic -->
+    <div class="reveal" style="transition-delay:.1s">
+      <h3 class="text-lg font-display font-600 text-neutral-700 dark:text-neutral-300 mb-5 flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-orange-400/60 inline-block"></span>
+        <span data-t="dyn_title"></span>
+      </h3>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="rounded-2xl p-7 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5">
+          <div class="flex items-start gap-4 mb-5">
+            <div class="w-11 h-11 rounded-xl bg-orange-500/10 flex items-center justify-center text-2xl flex-shrink-0">🔍</div>
+            <div><h4 class="font-display text-xl font-600 text-neutral-900 dark:text-white" data-t="w1_title"></h4><p class="text-sm text-neutral-400 font-mono mt-0.5" data-t="w1_sub"></p></div>
+          </div>
+          <p class="text-base text-neutral-600 dark:text-neutral-400 mb-5" data-t="w1_body"></p>
+          <div class="code-block p-4">
+            <div class="text-xs font-mono text-neutral-500 mb-1.5 uppercase tracking-wide" data-t="w1_result"></div>
+            <code class="font-mono text-sm text-orange-500 break-all">sensor.zagreb_transport_watch_&lt;slug&gt;</code>
+          </div>
+        </div>
+
+        <div class="rounded-2xl p-7 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5">
+          <div class="flex items-start gap-4 mb-5">
+            <div class="w-11 h-11 rounded-xl bg-orange-500/10 flex items-center justify-center text-2xl flex-shrink-0">📍</div>
+            <div><h4 class="font-display text-xl font-600 text-neutral-900 dark:text-white" data-t="w2_title"></h4><p class="text-sm text-neutral-400 font-mono mt-0.5" data-t="w2_sub"></p></div>
+          </div>
+          <p class="text-base text-neutral-600 dark:text-neutral-400 mb-5" data-t="w2_body"></p>
+          <div class="code-block p-4">
+            <div class="text-xs font-mono text-neutral-500 mb-1.5 uppercase tracking-wide" data-t="w2_result"></div>
+            <code class="font-mono text-sm text-orange-500">dep_rt — realtime departure</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 rounded-2xl border border-orange-500/20 bg-orange-500/[0.03] dark:bg-orange-500/[0.05] p-7">
+        <p class="text-sm font-mono text-orange-500 uppercase tracking-wider mb-6" data-t="cfg_label"></p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-5">
+          <div><p class="text-xs text-neutral-400 font-mono mb-2 uppercase tracking-wide">type</p><code class="font-mono text-base text-orange-600 dark:text-orange-400">station_query</code></div>
+          <div><p class="text-xs text-neutral-400 font-mono mb-2 uppercase tracking-wide">station_query</p><code class="font-mono text-base text-orange-600 dark:text-orange-400">Britanski trg</code></div>
+          <div><p class="text-xs text-neutral-400 font-mono mb-2 uppercase tracking-wide">vehicle</p><code class="font-mono text-base text-orange-600 dark:text-orange-400">All</code></div>
+          <div><p class="text-xs text-neutral-400 font-mono mb-2 uppercase tracking-wide">window_minutes</p><code class="font-mono text-base text-orange-600 dark:text-orange-400">30</code></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ FEATURES ═══════════════════════ -->
+<section class="py-28 px-6">
+  <div class="max-w-5xl mx-auto">
+    <div class="reveal mb-12">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="step-num text-orange-500 bg-orange-500/10 px-2.5 py-1 rounded-md">05</span>
+        <span class="text-sm font-mono text-neutral-400 uppercase tracking-widest" data-t="s05_label"></span>
+      </div>
+      <h2 class="font-display font-700 text-neutral-900 dark:text-white" style="font-size:clamp(2rem,5vw,3.25rem);line-height:1.15" data-t="s05_title"></h2>
+    </div>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 reveal">
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">🔧</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f1_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f1_body"></p></div>
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">🧹</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f2_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f2_body"></p></div>
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">🛡️</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f3_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f3_body"></p></div>
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">⚡</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f4_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f4_body"></p></div>
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">🗑️</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f5_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f5_body"></p></div>
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">🔔</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f6_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f6_body"></p></div>
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">🏷️</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f7_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f7_body"></p></div>
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">🌐</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f8_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f8_body"></p></div>
+      <div class="feature-card rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5"><div class="text-2xl mb-4">📚</div><h4 class="font-display text-lg font-600 text-neutral-900 dark:text-white mb-2" data-t="f9_title"></h4><p class="text-base text-neutral-500 dark:text-neutral-400 leading-relaxed" data-t="f9_body"></p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ DOCS + CTA ═══════════════════════ -->
+<section class="py-28 px-6 bg-neutral-50 dark:bg-white/[0.02] border-t border-neutral-200/60 dark:border-white/5">
+  <div class="max-w-5xl mx-auto">
+    <div class="reveal mb-12">
+      <div class="flex items-center gap-3 mb-4">
+        <span class="step-num text-orange-500 bg-orange-500/10 px-2.5 py-1 rounded-md">06</span>
+        <span class="text-sm font-mono text-neutral-400 uppercase tracking-widest" data-t="s06_label"></span>
+      </div>
+      <h2 class="font-display font-700 text-neutral-900 dark:text-white" style="font-size:clamp(2rem,5vw,3.25rem);line-height:1.15" data-t="s06_title"></h2>
+    </div>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 reveal">
+      <a href="https://github.com/BrunoAFK/ZagrebTransit/blob/main/docs/USAGE_NO_WATCHES.md" target="_blank" class="feature-card block rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5 group"><div class="text-2xl mb-4">📖</div><h4 class="font-display font-600 text-base text-neutral-900 dark:text-white mb-2 group-hover:text-orange-500 transition-colors" data-t="d1_title"></h4><p class="text-sm text-neutral-400 font-mono">USAGE_NO_WATCHES.md</p></a>
+      <a href="https://github.com/BrunoAFK/ZagrebTransit/blob/main/docs/WATCH_MANAGEMENT.md" target="_blank" class="feature-card block rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5 group"><div class="text-2xl mb-4">👁️</div><h4 class="font-display font-600 text-base text-neutral-900 dark:text-white mb-2 group-hover:text-orange-500 transition-colors" data-t="d2_title"></h4><p class="text-sm text-neutral-400 font-mono">WATCH_MANAGEMENT.md</p></a>
+      <a href="https://github.com/BrunoAFK/ZagrebTransit/blob/main/docs/DASHBOARDS_GUIDE.md" target="_blank" class="feature-card block rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5 group"><div class="text-2xl mb-4">📊</div><h4 class="font-display font-600 text-base text-neutral-900 dark:text-white mb-2 group-hover:text-orange-500 transition-colors" data-t="d3_title"></h4><p class="text-sm text-neutral-400 font-mono">DASHBOARDS_GUIDE.md</p></a>
+      <a href="https://github.com/BrunoAFK/ZagrebTransit/blob/main/docs/IMPORT_DASHBOARDS.md" target="_blank" class="feature-card block rounded-xl p-6 bg-white dark:bg-white/[0.03] border border-neutral-200/60 dark:border-white/5 group"><div class="text-2xl mb-4">📥</div><h4 class="font-display font-600 text-base text-neutral-900 dark:text-white mb-2 group-hover:text-orange-500 transition-colors" data-t="d4_title"></h4><p class="text-sm text-neutral-400 font-mono">IMPORT_DASHBOARDS.md</p></a>
+    </div>
+
+    <div class="reveal mt-16 text-center">
+      <div class="inline-block relative">
+        <div class="absolute inset-0 bg-orange-500/20 blur-2xl rounded-full scale-150 pointer-events-none"></div>
+        <a href="https://github.com/BrunoAFK/ZagrebTransit" target="_blank"
+           class="relative inline-flex items-center gap-3 px-9 py-5 bg-orange-500 hover:bg-orange-600 text-white font-display font-600 text-lg rounded-2xl transition-all hover:scale-[1.02] shadow-lg shadow-orange-500/25">
+          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span data-t="cta"></span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="py-10 px-6 border-t border-neutral-200/60 dark:border-white/5">
+  <div class="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <span class="tram-ride text-2xl">🚋</span>
+      <div>
+        <p class="font-display font-600 text-base text-neutral-700 dark:text-neutral-300">ZagrebTransit</p>
+        <p class="text-sm font-mono text-neutral-400" data-t="footer_sub"></p>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center justify-center gap-4 text-sm font-mono text-neutral-400">
+      <span data-t="footer_hacs"></span>
+      <span>•</span>
+      <span data-t="footer_os"></span>
+      <span>•</span>
+      <a href="https://github.com/BrunoAFK/ZagrebTransit" target="_blank" class="hover:text-orange-500 transition-colors">BrunoAFK/ZagrebTransit</a>
+    </div>
+  </div>
+</footer>
+
+<!-- ═══════════════════════ SCRIPTS ═══════════════════════ -->
+<script>
+// ── Cookie helpers ──────────────────────────────────────────────
+function getCookie(n) { var m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)'));return m?m[1]:null; }
+function setCookie(n,v,d) { var x=new Date();x.setTime(x.getTime()+d*864e5);document.cookie=n+'='+v+';expires='+x.toUTCString()+';path=/'; }
+
+// ── Theme ───────────────────────────────────────────────────────
+var themeLabel = document.getElementById('themeLabel');
+
+function updateThemeLabel() {
+  var lang = window.__lang || 'hr';
+  var isDark = document.documentElement.classList.contains('dark');
+  themeLabel.textContent = isDark ? T[lang].theme_dark : T[lang].theme_light;
+}
+
+document.getElementById('themeToggle').addEventListener('click', function() {
+  var isDark = document.documentElement.classList.toggle('dark');
+  setCookie('theme', isDark ? 'dark' : 'light', 365);
+  updateThemeLabel();
+});
+
+// ── Language ────────────────────────────────────────────────────
+var btnHr = document.getElementById('btnHr');
+var btnEn = document.getElementById('btnEn');
+
+function applyLang(lang, save) {
+  window.__lang = lang;
+  document.documentElement.setAttribute('data-lang', lang);
+  document.documentElement.lang = lang;
+
+  if (save) setCookie('lang', lang, 365);
+
+  // Update active button
+  btnHr.classList.toggle('active', lang === 'hr');
+  btnEn.classList.toggle('active', lang === 'en');
+
+  // Fade out, swap text, fade in
+  document.body.classList.add('lang-switching');
+
+  setTimeout(function() {
+    var els = document.querySelectorAll('[data-t]');
+    var dict = T[lang];
+    els.forEach(function(el) {
+      var key = el.getAttribute('data-t');
+      if (dict[key] !== undefined) el.textContent = dict[key];
     });
+    updateThemeLabel();
+    document.body.classList.remove('lang-switching');
+  }, 150);
+}
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) entry.target.classList.add("in");
-        });
-      },
-      { threshold: 0.12 }
-    );
-    document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
+function setLang(lang) { applyLang(lang, true); }
 
-    async function loadStars() {
-      const starsEl = document.getElementById("starsCount");
-      try {
-        const response = await fetch("https://api.github.com/repos/BrunoAFK/ZagrebTransport");
-        if (!response.ok) throw new Error("GitHub API error");
-        const data = await response.json();
-        const stars = data.stargazers_count;
-        starsEl.textContent = typeof stars === "number" ? stars.toLocaleString("en-US") : "—";
-      } catch (_err) {
-        starsEl.textContent = "—";
-      }
+// Initial render (no cookie write, just apply)
+applyLang(window.__lang || 'hr', false);
+
+// ── Scroll reveal ───────────────────────────────────────────────
+var observer = new IntersectionObserver(function(entries) {
+  entries.forEach(function(e) {
+    if (e.isIntersecting) {
+      setTimeout(function(){ e.target.classList.add('visible'); }, 60);
+      observer.unobserve(e.target);
     }
-    loadStars();
-  </script>
+  });
+}, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal').forEach(function(el){ observer.observe(el); });
+
+// ── Copy URL ────────────────────────────────────────────────────
+function copyUrl(btn) {
+  navigator.clipboard.writeText('https://github.com/BrunoAFK/ZagrebTransit').then(function() {
+    var orig = btn.innerHTML;
+    btn.innerHTML = '<svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+    setTimeout(function(){ btn.innerHTML = orig; }, 1800);
+  });
+}
+</script>
+
 </body>
 </html>
